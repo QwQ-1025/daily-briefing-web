@@ -341,7 +341,7 @@ async function loadWatch() {
     if (!blocks.length) { box.innerHTML = '<div class="small">暂无条目</div>'; return; }
     box.innerHTML = blocks.map((b) => {
       const role = b.block.includes('role: holding') ? '持仓' : '观察';
-      const g = (key, dft) => (((b.block.match(new RegExp('^\\s*' + key + ':\\s*(.+)$', 'm')) || [])[1] || dft || '').trim();
+      const g = (key, dft) => (((b.block.match(new RegExp('^\\s*' + key + ':\\s*(.+)$', 'm')) || [])[1] || dft || '').trim());
       const trig = g('plan') || g('entry_trigger');
       return `<div class="item"><div><span class="tag ${role === '持仓' ? 't-fail' : 't-run'}">${role}</span> <b>${esc(b.ticker)}</b> <span class="small">${esc(g('name'))}</span></div>
 ${trig ? `<div class="small" style="margin:3px 0">${esc(trig)}</div>` : ''}
@@ -355,7 +355,7 @@ async function editWatch(ticker) {
     const b = tickerBlocks(text).find((x) => x.ticker === ticker);
     if (!b) return toast('找不到 ' + ticker);
     const isHolding = b.block.includes('role: holding');
-    const g = (key) => (((b.block.match(new RegExp('^\\s*' + key + ':\\s*(.+)$', 'm')) || [])[1] || '').trim();
+    const g = (key) => (((b.block.match(new RegExp('^\\s*' + key + ':\\s*(.+)$', 'm')) || [])[1] || '').trim());
     const parseFlow = (s) => { const m = s.match(/^\[(.*)\]$/); return m ? m[1].split(',').map((x) => x.trim().replace(/^"|"$/g, '')).filter(Boolean).join('；') : s; };
     $('#watchList').insertAdjacentHTML('beforebegin', `<div class="card" id="editWatchBox"><h2>✏️ 编辑 ${esc(ticker)}</h2>
 <label>名称</label><input id="ewName" value="${esc(g('name'))}">
