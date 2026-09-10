@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f172a">
+<title>晨报 App</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;font-family:-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;background:#f1f5f9;color:#0f172a;padding-bottom:72px}
+header{background:#0f172a;color:#f8fafc;padding:14px 16px;font-size:18px;font-weight:800;position:sticky;top:0;z-index:5}
+header .sub{font-size:11px;color:#94a3b8;font-weight:400;margin-top:2px}
+.wrap{max-width:720px;margin:0 auto;padding:12px}
+.card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:14px;margin:10px 0}
+h2{font-size:15px;margin:0 0 10px}
+.btn{display:inline-block;background:#2563eb;color:#fff;border:none;border-radius:10px;padding:11px 18px;font-size:14px;font-weight:700;cursor:pointer;width:100%}
+.btn.sec{background:#f1f5f9;color:#0f172a;border:1px solid #e2e8f0}
+.btn.warn{background:#b45309}
+.btn.danger{background:#fff;color:#b91c1c;border:1px solid #fecaca}
+.btn:disabled{opacity:.5}
+.btn.sm{padding:7px 12px;font-size:12px;width:auto}
+.row{display:flex;gap:8px}
+.row .btn{flex:1}
+input,select,textarea{width:100%;padding:10px 12px;border:1px solid #d1d5db;border-radius:10px;font-size:14px;margin:3px 0 10px;background:#fff;font-family:inherit}
+label{font-size:12px;color:#64748b}
+iframe{width:100%;border:none;border-radius:10px;background:#f1f5f9}
+.hidden{display:none}
+nav{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #e2e8f0;display:flex;z-index:10}
+nav button{flex:1;background:none;border:none;padding:9px 0 7px;font-size:11px;color:#64748b;cursor:pointer}
+nav button.on{color:#2563eb;font-weight:700}
+nav button .ic{display:block;font-size:18px;margin-bottom:1px}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:80px;background:#0f172a;color:#fff;padding:10px 18px;border-radius:20px;font-size:13px;z-index:20;opacity:0;transition:opacity .3s}
+.toast.show{opacity:1}
+table{width:100%;border-collapse:collapse;font-size:12px}
+td,th{padding:6px 3px;border-bottom:1px solid #f1f5f9;text-align:right}
+td:first-child,th:first-child{text-align:left}
+.pos{color:#047857;font-weight:700}.neg{color:#b91c1c;font-weight:700}
+.tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700}
+.t-ok{background:#ecfdf5;color:#047857}.t-run{background:#eff6ff;color:#1d4ed8}.t-fail{background:#fef2f2;color:#b91c1c}
+.advice{background:#fffbeb;border-left:3px solid #f59e0b;border-radius:6px;padding:8px 10px;font-size:12.5px;color:#92400e;margin:6px 0;line-height:1.6}
+.answer{background:#eff6ff;border-left:3px solid #2563eb;border-radius:6px;padding:10px 12px;font-size:13px;color:#1e3a8a;margin:8px 0;line-height:1.75;white-space:pre-wrap}
+a{color:#2563eb}
+.small{font-size:11px;color:#94a3b8}
+.item{border-bottom:1px solid #f1f5f9;padding:9px 0}
+.item:last-child{border-bottom:none}
+#reportFrame{height:70vh}
+</style>
+</head>
+<body>
+<header>📈 晨报 App<span class="sub" id="headSub"></span></header>
+<div class="wrap">
+
+  <section id="scr-setup" class="hidden">
+    <div class="card">
+      <h2>🔑 首次设置</h2>
+      <label>仓库（owner/name）</label>
+      <input id="inRepo" placeholder="QwQ-1025/daily-briefing">
+      <label>受限访问令牌（仅限该仓库）</label>
+      <input id="inToken" type="password" placeholder="github_pat_...">
+      <div class="small">令牌创建见 README（Contents 读写 + Actions 读写，仅选 daily-briefing）。令牌只存你浏览器 localStorage。</div>
+      <br>
+      <button class="btn" onclick="saveSetup()">保存并进入</button>
+    </div>
+  </section>
+
+  <section id="scr-home" class="hidden">
+    <div class="card">
+      <div class="row" style="margin-bottom:8px">
+        <button class="btn sec sm" onclick="homeNav(-1)">‹</button>
+        <h2 id="homeTitle" style="text-align:center;flex:3">今日报告</h2>
+        <button class="btn sec sm" onclick="homeNav(1)">›</button>
+      </div>
+      <div id="runBadge" style="margin-bottom:8px"></div>
+      <iframe id="reportFrame"></iframe>
+    </div>
+    <div class="row">
+      <button class="btn" onclick="triggerBriefing()">⚡ 立即生成</button>
+      <button class="btn sec" onclick="window.open('https://github.com/'+state.repo,'_blank')">GitHub ↗</button>
+    </div>
+  </section>
+
+  <section id="scr-qa" class="hidden">
+    <div class="card">
+      <h2>💬 问 AI</h2>
+      <textarea id="inQuestion" rows="2" placeholder="例如：NVDA 第三批现在该买吗？SPCX 今天跌破 140 怎么办？"></textarea>
+      <button class="btn" id="btnAsk" onclick="askAi()">提问（约 1-2 分钟出答案，同步推微信）</button>
+      <div id="askResult"></div>
+    </div>
+    <div class="card">
+      <h2>🧾 问答历史</h2>
+      <div id="qaList"><div class="small">加载中…</div></div>
+    </div>
+  </section>
+
+  <section id="scr-board" class="hidden">
+    <div class="card" id="boardCard"><div class="small">加载中…</div></div>
+    <div class="card">
+      <h2>💼 记一笔交易（模拟盘）</h2>
+      <label>股票</label>
+      <select id="tradeTicker"></select>
+      <label>方向</label>
+      <select id="tradeSide"><option value="buy">买入</option><option value="sell">卖出</option></select>
+      <label>股数</label>
+      <input id="tradeShares" type="number" min="1" placeholder="20">
+      <label>成交价 $</label>
+      <input id="tradePrice" type="number" step="0.01" placeholder="218.10">
+      <label>备注（可选）</label>
+      <input id="tradeNote" placeholder="例如：按计划第三批">
+      <button class="btn warn" onclick="recordTrade()">记录交易（自动更新持仓与现金）</button>
+    </div>
+    <div class="card">
+      <h2>🧾 最近交易</h2>
+      <div id="tradeList"><div class="small">加载中…</div></div>
+    </div>
+  </section>
+
+  <section id="scr-watch" class="hidden">
+    <div class="card">
+      <h2>➕ 加一只股票（自动调研）</h2>
+      <input id="inTicker" placeholder="例如 TSM / MSFT" style="text-transform:uppercase">
+      <button class="btn" id="btnResearch" onclick="startResearch()">🔍 调研这只股</button>
+      <div id="researchResult"></div>
+    </div>
+    <div class="card">
+      <h2>👁 观察名单（点编辑可改触发线/关键词/删除）</h2>
+      <div id="watchList"><div class="small">加载中…</div></div>
+    </div>
+  </section>
+
+</div>
+<nav>
+  <button id="navHome" class="on" onclick="go('home')"><span class="ic">📄</span>今日</button>
+  <button id="navQa" onclick="go('qa')"><span class="ic">💬</span>问答</button>
+  <button id="navBoard" onclick="go('board')"><span class="ic">💰</span>持仓</button>
+  <button id="navWatch" onclick="go('watch')"><span class="ic">👁</span>观察</button>
+  <button id="navSetup" onclick="go('setup')"><span class="ic">⚙️</span>设置</button>
+</nav>
+<div class="toast" id="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>
