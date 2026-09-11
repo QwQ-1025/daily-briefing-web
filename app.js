@@ -161,7 +161,7 @@ async function renderRunBadge() {
 }
 async function triggerBriefing() {
   toast('已触发，约 3-5 分钟完成并推微信');
-  try { await dispatch('daily-briefing.yml'); } catch (e) { toast('触发失败：' + e.message); return; }
+  try { await dispatch('daily-briefing.yml', { force: 'true' }); } catch (e) { toast('触发失败：' + e.message); return; }
   for (let i = 0; i < 30; i++) {
     await sleep(15000);
     const r = await latestRun('Daily Market Briefing').catch(() => null);
