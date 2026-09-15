@@ -1,5 +1,5 @@
-const CACHE = 'briefing-web-v2';
-const SHELL = ['./', './index.html', './app.js', './manifest.webmanifest', './icon.svg'];
+const CACHE = 'briefing-web-v3';
+const SHELL = ['./', './index.html', './app.js', './vendor-yaml.js', './manifest.webmanifest', './icon.svg'];
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
 });

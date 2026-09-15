@@ -273,11 +273,118 @@ async function saveHolding(ticker) {
 }
 
 // ---------- 交易记录 ----------
+// ---------- 下单前纪律闸门（2026-09-15 新增） ----------
+// 检查逻辑来自私有仓库的 src/guard-core.mjs（纯函数，无 node 依赖），
+// 每次运行时取回最新版本动态求值 —— 改规则不用重新部署 App。
+let guardMod = null, yamlMod = null;
+
+/**
+ * 取回并求值 guard-core.mjs。
+ * 它里面有一行 `import { evalTrigger } from "./triggers.mjs"`，浏览器没有相对路径可解析，
+ * 所以把 triggers.mjs 也取回来做成 blob URL，再把那行 import 替换掉。
+ */
+async function loadGuard() {
+  if (guardMod) return guardMod;
+  const [core, trig] = await Promise.all([
+    readFile('src/guard-core.mjs'),
+    readFile('src/triggers.mjs'),
+  ]);
+  if (!yamlMod) yamlMod = await import('./vendor-yaml.js');
+  const YAML = yamlMod.default || yamlMod;
+  const trigUrl = URL.createObjectURL(new Blob([trig.text], { type: 'text/javascript' }));
+  const coreSrc = core.text.replace(/(from\s*['"])\.\/triggers\.mjs(['"])/, `$1${trigUrl}$2`);
+  const coreUrl = URL.createObjectURL(new Blob([coreSrc], { type: 'text/javascript' }));
+  guardMod = { ...(await import(coreUrl)), YAML };
+  return guardMod;
+}
+
+/** 组装 checkTrade 的入参：三份配置 + 现金 + 持仓（尽量用晨报现价重估） */
+async function guardContext() {
+  const { YAML } = await loadGuard();
+  const [wlF, prF, evF, ctxF] = await Promise.all([
+    readFile('config/watchlist.yaml'),
+    readFile('config/principles.yaml'),
+    readFile('config/events.yaml'),
+    readFile('context/portfolio-summary.md').catch(() => ({ text: '' })),
+  ]);
+  const wl = YAML.parse(wlF.text) || {};
+  const pr = YAML.parse(prF.text) || {};
+  const ev = YAML.parse(evF.text) || {};
+  const m = ctxF.text.match(/\*\*现金\*\*：\$([\d,]+)/);
+  const cash = m ? parseInt(m[1].replace(/,/g, ''), 10) : null;
+
+  // 用最新一份晨报的现价重估持仓，否则「单票占比」按成本价算会失真
+  const prices = {};
+  try {
+    const files = (await listDir('reports')).filter((f) => f.name.endsWith('.json')).map((f) => f.name).sort();
+    if (files.length) {
+      const j = JSON.parse((await readFile('reports/' + files[files.length - 1])).text);
+      for (const row of j.snapshot?.rows || []) if (row.price) prices[row.ticker] = row.price;
+    }
+  } catch (e) { /* 拿不到就退回成本价 */ }
+
+  const holdings = (wl.watchlist || []).filter((w) => w.role === 'holding')
+    .map((w) => ({ ticker: w.ticker, shares: w.shares, cost_basis: w.cost_basis, price: prices[w.ticker] ?? null }));
+  return { watchlist: wl.watchlist || [], rules: pr.rules || [], events: ev, account: { cash, holdings } };
+}
+
+function renderGuard(r) {
+  const box = $('#guardBox');
+  const theme = r.verdict === 'ok' ? ['#047857', '#ecfdf5', '#a7f3d0', '✅ 纪律检查通过']
+    : r.verdict === 'warning' ? ['#b45309', '#fffbeb', '#fde68a', '⚠️ 有提醒（不阻断）']
+      : ['#b91c1c', '#fef2f2', '#fecaca', '⛔ 未通过纪律检查'];
+  const [fg, bg, bd, title] = theme;
+  const block = (arr, icon) => arr.map((v) =>
+    `<div style="margin-top:7px"><b>${icon} ${v.rule_id ? '[' + esc(v.rule_id) + '] ' : ''}${esc(v.rule_text)}</b>`
+    + `<div class="small" style="color:${fg};opacity:.85">${esc(v.detail)}</div></div>`).join('');
+  box.innerHTML = `<div style="margin-top:10px;background:${bg};border:1px solid ${bd};border-radius:8px;padding:10px 12px;color:${fg};font-size:13px">`
+    + `<b>${title}</b>${block(r.violations, '⛔')}${block(r.warnings, '⚠️')}</div>`;
+  box.classList.remove('hidden');
+}
+
+function resetGuardUi() {
+  $('#guardBox').classList.add('hidden');
+  $('#guardReasonWrap').classList.add('hidden');
+  $('#guardReason').value = '';
+  $('#tradeBtn').textContent = '记录交易（先检查纪律）';
+}
+
 async function recordTrade() {
   const ticker = $('#tradeTicker').value, side = $('#tradeSide').value;
   const shares = parseInt($('#tradeShares').value, 10), price = parseFloat($('#tradePrice').value);
   const note = $('#tradeNote').value.trim();
   if (!ticker || !shares || shares <= 0 || !price || price <= 0) return toast('填写完整（股数/价格必须为正数）');
+
+  // 北京时间日期。原来用 toISOString() 取的是 UTC 日期，北京凌晨记账会记成前一天。
+  const today = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
+
+  // ---- ① 纪律闸门 ----
+  let guard = null, violations = [], reason = '';
+  try {
+    const mod = await loadGuard();
+    const ctx = await guardContext();
+    guard = mod.checkTrade({
+      trade: { ticker, side, shares, price, date: today },
+      watchlist: ctx.watchlist, rules: ctx.rules, events: ctx.events, account: ctx.account, today,
+    });
+    violations = guard.violations.map((v) => v.rule_id || v.check);
+    renderGuard(guard);
+  } catch (e) {
+    // 闸门自身故障不阻断记账（记不了账比漏检查更糟），但必须让用户看见
+    console.warn('guard failed', e);
+    toast('纪律检查不可用（' + String(e.message).slice(0, 36) + '），本次直接记账');
+  }
+
+  // 违规必须先填理由，再点一次
+  if (guard && guard.requires_reason) {
+    reason = $('#guardReason').value.trim();
+    if (!reason) {
+      $('#guardReasonWrap').classList.remove('hidden');
+      $('#tradeBtn').textContent = '⛔ 确认违规并记录';
+      return toast(`违反 ${violations.length} 条纪律（${violations.join('、')}），请填写理由后再次点击`);
+    }
+  }
+
   try {
     // 1) 更新 watchlist 持仓
     const wl = await readFile('config/watchlist.yaml');
@@ -311,14 +418,32 @@ async function recordTrade() {
     } catch (e) { console.warn('现金更新失败', e); }
 
     // 3) 追加交易台账
-    const entry = `  - date: "${new Date().toISOString().slice(0, 10)}"\n    ticker: ${ticker}\n    side: ${side}\n    shares: ${shares}\n    price: ${price}\n    note: "${note || ''}"\n`;
+    //    ⚠️ 格式与 loadTrades() 的正则绑定：date 必须带引号、字段顺序固定，
+    //       扩展字段（violations/reason）只能追加在 note 之后。
+    const q = (s) => '"' + String(s ?? '').replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+    const lines = [
+      `  - date: ${q(today)}`,
+      `    ticker: ${ticker}`,
+      `    side: ${side}`,
+      `    shares: ${shares}`,
+      `    price: ${price}`,
+      `    note: ${q(note || '')}`,
+    ];
+    if (violations.length) {
+      lines.push(`    violations: [${violations.join(', ')}]`);
+      lines.push(`    reason: ${q(reason)}`);
+    }
+    const entry = lines.join('\n') + '\n';
     let trades = null;
     try { trades = await readFile('trades.yaml'); } catch (e) { /* 不存在 */ }
     const newTrades = trades ? trades.text.replace(/\s*$/, '\n') + entry : 'trades:\n' + entry;
     await writeFile('trades.yaml', newTrades, `trade ${side} ${shares} ${ticker}`, trades ? trades.sha : undefined);
 
-    toast(`✅ 已记录：${side === 'buy' ? '买入' : '卖出'} ${shares} 股 ${ticker} @ $${price}`);
+    toast(violations.length
+      ? `⚠️ 已记录（违规 ${violations.join('、')}）：${side === 'buy' ? '买入' : '卖出'} ${shares} 股 ${ticker} @ $${price}`
+      : `✅ 已记录：${side === 'buy' ? '买入' : '卖出'} ${shares} 股 ${ticker} @ $${price}`);
     $('#tradeShares').value = ''; $('#tradePrice').value = ''; $('#tradeNote').value = '';
+    resetGuardUi();
     loadBoard();
   } catch (e) { toast('记录失败：' + e.message); }
 }

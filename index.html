@@ -108,7 +108,16 @@ a{color:#2563eb}
       <input id="tradePrice" type="number" step="0.01" placeholder="218.10">
       <label>备注（可选）</label>
       <input id="tradeNote" placeholder="例如：按计划第三批">
-      <button class="btn warn" onclick="recordTrade()">记录交易（自动更新持仓与现金）</button>
+
+      <!-- 下单前纪律闸门（2026-09-15 新增）：记录前先跑 config/principles.yaml 的检查 -->
+      <div id="guardBox" class="hidden"></div>
+      <div id="guardReasonWrap" class="hidden">
+        <label style="color:#b91c1c">违规理由（必填）</label>
+        <input id="guardReason" placeholder="为什么明知违反纪律还要做？">
+      </div>
+
+      <button class="btn warn" id="tradeBtn" onclick="recordTrade()">记录交易（先检查纪律）</button>
+      <div class="small" style="margin-top:6px">记录前会自动跑一遍交易原则检查；触发违规时必须填写理由才会入账。</div>
     </div>
     <div class="card">
       <h2>🧾 最近交易</h2>
