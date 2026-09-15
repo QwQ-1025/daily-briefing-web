@@ -88,15 +88,21 @@ function updateTicker(text, ticker, fields) {
   if (!b) throw new Error('找不到 ' + ticker);
   let nb = b.block;
   for (const [k, v] of Object.entries(fields)) nb = setField(nb, k, v);
-  return text.slice(0, b.start) + nb + text.slice(b.end);
+  // ⚠️ tickerBlocks 返回的 start/end 是【行号】，不是字符偏移。
+  //    早期版本写成 text.slice(0, b.start) + nb + text.slice(b.end)，
+  //    等于"取文件前 N 个字符"，会把文件头注释整段覆盖掉、并在开头插入重复块。
+  //    必须按行拼接。
+  const lines = text.split('\n');
+  return [...lines.slice(0, b.start), ...nb.split('\n'), ...lines.slice(b.end)].join('\n');
 }
 function deleteTicker(text, ticker) {
   const blocks = tickerBlocks(text);
   const b = blocks.find((x) => x.ticker === ticker);
   if (!b) throw new Error('找不到 ' + ticker);
-  const before = text.slice(0, b.start).replace(/\n+$/, '\n');
-  const after = text.slice(b.end).replace(/^\n+/, '');
-  return before + after;
+  // 同上：start/end 是行号，必须按行删除
+  const lines = text.split('\n');
+  const kept = [...lines.slice(0, b.start), ...lines.slice(b.end)];
+  return kept.join('\n').replace(/\n{3,}/g, '\n\n');
 }
 
 // ---------- 导航 ----------
@@ -356,8 +362,12 @@ async function recordTrade() {
   const note = $('#tradeNote').value.trim();
   if (!ticker || !Number.isFinite(shares) || shares <= 0 || !Number.isFinite(price) || price <= 0) return toast('填写完整（股数/价格必须为正数）');
 
-  // 北京时间日期。原来用 toISOString() 取的是 UTC 日期，北京凌晨记账会记成前一天。
-  const today = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
+  // 交易日期用【美股会话日期】（美东时区）。
+  //   ✗ 北京日期：美股盘中 = 北京次日凌晨，会把交易日记成后一天，
+  //     跟历史台账（8/3 建仓 = 美东 8/3 会话）和行情数据全部对不上。
+  //   ✗ toISOString()（UTC）：常规时段内恰好等于美东日期，但盘后（20:00 UTC 之后）
+  //     会多算一天，不如直接指定时区严谨。
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
 
   // ---- ① 纪律闸门 ----
   let guard = null, violations = [], reason = '';
