@@ -351,9 +351,10 @@ function resetGuardUi() {
 
 async function recordTrade() {
   const ticker = $('#tradeTicker').value, side = $('#tradeSide').value;
-  const shares = parseInt($('#tradeShares').value, 10), price = parseFloat($('#tradePrice').value);
+  // 股数必须允许小数：按金额下单时（NVDA 首批 $5,000 @ 209.83 = 23.82881 股）不是整数
+  const shares = parseFloat($('#tradeShares').value), price = parseFloat($('#tradePrice').value);
   const note = $('#tradeNote').value.trim();
-  if (!ticker || !shares || shares <= 0 || !price || price <= 0) return toast('填写完整（股数/价格必须为正数）');
+  if (!ticker || !Number.isFinite(shares) || shares <= 0 || !Number.isFinite(price) || price <= 0) return toast('填写完整（股数/价格必须为正数）');
 
   // 北京时间日期。原来用 toISOString() 取的是 UTC 日期，北京凌晨记账会记成前一天。
   const today = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
@@ -450,7 +451,7 @@ async function recordTrade() {
 async function loadTrades() {
   try {
     const { text } = await readFile('trades.yaml');
-    const entries = [...text.matchAll(/^\s*- date: "([^"]+)"\n\s+ticker: (\S+)\n\s+side: (\S+)\n\s+shares: (\d+)\n\s+price: ([\d.]+)(?:\n\s+note: "([^"]*)")?/gm)];
+    const entries = [...text.matchAll(/^\s*- date: "([^"]+)"\n\s+ticker: (\S+)\n\s+side: (\S+)\n\s+shares: ([\d.]+)\n\s+price: ([\d.]+)(?:\n\s+note: "([^"]*)")?/gm)];
     $('#tradeList').innerHTML = entries.length
       ? entries.slice(-15).reverse().map((m) => `<div class="item"><b>${m[1]}</b> ${m[3] === 'buy' ? '🟢买' : '🔴卖'} <b>${esc(m[2])}</b> ${m[4]} 股 @ $${m[5]}${m[6] ? `<div class="small">${esc(m[6])}</div>` : ''}</div>`).join('')
       : '<div class="small">还没有交易记录</div>';
