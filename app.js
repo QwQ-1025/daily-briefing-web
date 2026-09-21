@@ -71,12 +71,24 @@ function setField(block, key, value) {
   const idx = lines.findIndex((l) => l.trim().startsWith(key + ':'));
   const indent = '    ';
   const line = value == null ? null : `${indent}${key}: ${value}`;
-  if (value == null) {
-    if (idx >= 0) lines.splice(idx, 1);
+  if (idx >= 0) {
+    // ⚠️ 必须把这个键【原有的后续行】一起吃掉：块式列表项（"  - xxx"）和多行标量的续行。
+    //    不吃掉的话，setField 把 `chain_keywords:` 换成一行流式列表 ["a", "b"] 后，
+    //    下面原本的 "  - a" / "  - b" 会变成孤儿 → 整份 watchlist.yaml 解析失败
+    //    → 晨报直接挂掉。观察名单用的是块式列表，而这个函数写的是流式，两者必撞。
+    //    判定：紧跟其后、缩进【深于】本键、且不是空行的行，都属于本键。
+    const keyIndent = lines[idx].match(/^\s*/)[0].length;
+    let end = idx + 1;
+    while (end < lines.length) {
+      const l = lines[end];
+      if (l.trim() === '') break;
+      if (l.match(/^\s*/)[0].length <= keyIndent) break;
+      end++;
+    }
+    lines.splice(idx, end - idx, ...(value == null ? [] : [line]));
     return lines.join('\n');
   }
-  if (idx >= 0) { lines[idx] = line; return lines.join('\n'); }
-  // 插入到 ticker 行之后
+  // 键不存在：插入到 ticker 行之后
   const t = lines.findIndex((l) => /^\s*- ticker:/.test(l));
   lines.splice(t + 1, 0, line);
   return lines.join('\n');
