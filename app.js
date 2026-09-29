@@ -473,7 +473,7 @@ async function recordTrade() {
 async function loadTrades() {
   try {
     const { text } = await readFile('trades.yaml');
-    const entries = [...text.matchAll(/^\s*- date: "([^"]+)"\n\s+ticker: (\S+)\n\s+side: (\S+)\n\s+shares: ([\d.]+)\n\s+price: ([\d.]+)(?:\n\s+note: "([^"]*)")?/gm)];
+    const entries = [...text.matchAll(/^\s*- date: ?"?([\d]{4}-[\d]{2}-[\d]{2})"?\n\s+ticker: (\S+)\n\s+side: (\S+)\n\s+shares: ([\d.]+)\n\s+price: ([\d.]+)(?:\n\s+note: "([^"]*)")?/gm)];
     $('#tradeList').innerHTML = entries.length
       ? entries.slice(-15).reverse().map((m) => `<div class="item"><b>${m[1]}</b> ${m[3] === 'buy' ? '🟢买' : '🔴卖'} <b>${esc(m[2])}</b> ${m[4]} 股 @ $${m[5]}${m[6] ? `<div class="small">${esc(m[6])}</div>` : ''}</div>`).join('')
       : '<div class="small">还没有交易记录</div>';
